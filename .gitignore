@@ -1,3 +1,4 @@
 yolo_env/
-yolo11m.pt/
-yolo11x.pt/
+IK_Demo.ino
+Kinematics.m
+IK_6dof.ipynb

@@ -1,6 +1,6 @@
 import sounddevice as sd
 import numpy as np
-import os, time, ast, re, asyncio, cv2, whisper, pyttsx3, math, webrtcvad
+import os, time, ast, re, asyncio, cv2, whisper, pyttsx3, math
 from pydub import AudioSegment
 from ultralytics import YOLO
 from langchain_ollama import ChatOllama

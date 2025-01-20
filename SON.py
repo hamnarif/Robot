@@ -6,21 +6,29 @@ from ultralytics import YOLO
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from pprint import pprint
+from dotenv import load_dotenv
+
+# Load environment variables for camera at the start
+load_dotenv()
+# username = os.getenv("CAMERA_USERNAME")
+# password = os.getenv("CAMERA_PASSWORD")
+# camera_ip = os.getenv("CAMERA_IP", "192.168.1.64")  # Default IP if not in .env
+
+username = "admin"
+password = 'SNO"2025'
+camera_ip = "169.254.91.58" 
+
+print(f"CAMERA_USERNAME: {username}")
+print(f"CAMERA_PASSWORD: {password}")
+print(f"CAMERA_IP: {camera_ip}")
 
 # Initialize models
-speech_model = whisper.load_model("large-v3-turbo")
+speech_model = whisper.load_model("base")
 object_model = YOLO("yolo11x.pt")
 llm = ChatOllama(model="llama3.1")
 
 # Initialize text-to-speech engine
 tts_engine = pyttsx3.init()
-
-
-def speak(message):
-    """Convert text to speech."""
-    tts_engine.say(message)
-    tts_engine.runAndWait()
-
 
 # Parameters
 SAMPLE_RATE = 16000
@@ -29,6 +37,10 @@ CHUNK_DURATION = 1
 SILENCE_TOLERANCE = 4
 AUDIO_BUFFER = []
 
+def speak(message):
+    """Convert text to speech."""
+    tts_engine.say(message)
+    tts_engine.runAndWait()
 
 # Speech Detection
 def detect_speech(audio_chunk):
@@ -82,14 +94,31 @@ def record_audio():
                     return text
 
 
+def get_camera_stream():
+    """Initialize and return camera stream."""
+    print(f"Attempting to connect to camera at IP: {camera_ip}")
+    
+    # Construct RTSP URL
+    rtsp_url = f"rtsp://{username}:{password}@{camera_ip}:554" if username and password else f"rtsp://{camera_ip}:554"
+    print(f"Using RTSP URL: {rtsp_url}")
+    
+    cap = cv2.VideoCapture(rtsp_url)
+    if not cap.isOpened():
+        print("Error: Unable to connect to the camera. Check the RTSP URL or network connection.")
+        return None
+        
+    print("Successfully connected to the camera.")
+    return cap
+
+
 def detect_objects_realtime(extracted_objects, search_timeout=15):
     """
     Detect objects in real-time from the camera feed and match with extracted objects.
     Stops searching after a timeout and returns to speech-to-text.
     """
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Error: Could not open the camera.")
+    cap = get_camera_stream()
+    if cap is None:
+        print("Camera initialization failed.")
         return False
 
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -97,12 +126,12 @@ def detect_objects_realtime(extracted_objects, search_timeout=15):
     print("Starting real-time object detection. Press 'q' to exit.")
 
     announced_missing = False
-    start_time = time.time()  # Start the timer
+    start_time = time.time()
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("Error: Failed to capture the frame.")
+            print("Error: Failed to retrieve frame. Check camera connection.")
             break
 
         results = object_model(frame)
@@ -143,7 +172,7 @@ def detect_objects_realtime(extracted_objects, search_timeout=15):
             pprint(matched_objects)
             cap.release()
             cv2.destroyAllWindows()
-            return True  # Return True if objects are found
+            return True
 
         # Check if no objects matched and it hasn't been announced yet
         if not matched_objects and extracted_objects and not announced_missing:
@@ -164,7 +193,7 @@ def detect_objects_realtime(extracted_objects, search_timeout=15):
 
     cap.release()
     cv2.destroyAllWindows()
-    return False  # Return False if timeout occurs without finding objects
+    return False
 
 
 def pixel_to_real_world(pixel_coords, frame_width, frame_height):
@@ -174,7 +203,7 @@ def pixel_to_real_world(pixel_coords, frame_width, frame_height):
     """
     # Constants for conversion (these should be calibrated for your camera setup)
     HORIZONTAL_FOV = 60  # degrees
-    VERTICAL_FOV = 45  # degrees
+    # VERTICAL_FOV = 45  # degrees
     TYPICAL_ROOM_WIDTH = 5.0  # meters
     TYPICAL_ROOM_HEIGHT = 4.0  # meters
 

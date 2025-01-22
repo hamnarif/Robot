@@ -266,6 +266,52 @@ def pixel_to_real_world(pixel_coords, frame_width, frame_height):
 
     return real_x, real_y, depth
 
+def process_spatial_query(input_text, detected_objects_with_coords):
+    """
+    Process spatial queries about object locations.
+    Args:
+        input_text: User's speech converted to text
+        detected_objects_with_coords: List of dictionaries containing object info and coordinates
+    Returns:
+        str: Natural language response about object locations
+    """
+    prompt = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            """You are a helpful assistant that answers questions about the spatial relationships between objects in view of a camera.
+            The coordinates provided are in meters where:
+            - x: horizontal position (negative is left, positive is right)
+            - y: vertical position (negative is lower, positive is higher)
+            - depth: distance from camera (larger numbers are further away)
+
+            Rules:
+            - For questions about left/right, compare x coordinates
+            - For questions about higher/lower, compare y coordinates
+            - For questions about closer/farther, compare depth values
+            - Use natural language to describe relative positions
+            - Be specific about which object is where
+            - Keep responses conversational but precise"""
+        ),
+        (
+            "human",
+            """User question: {input_text}
+            Detected objects with coordinates: {detected_objects_with_coords}
+            
+            Provide a natural response describing the spatial relationships:"""
+        ),
+    ])
+
+    try:
+        chain = prompt | llm
+        response = chain.invoke({
+            "input_text": input_text,
+            "detected_objects_with_coords": detected_objects_with_coords
+        })
+        return response.content
+    except Exception as e:
+        print(f"Error processing spatial query: {e}")
+        return "I'm having trouble processing that spatial request."
+
 def main():
     """Main execution flow for the object detection and query system."""
     while True:
@@ -275,20 +321,50 @@ def main():
         
         # Get current camera view and detect objects
         detected_objects = []
+        detected_objects_with_coords = []
         cap = get_camera_stream()
+        
         if cap is not None:
             ret, frame = cap.read()
             if ret:
+                frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 results = object_model(frame)
-                # Extract unique object names from results
-                detected_objects = list(set(
-                    object_model.names[int(box.cls[0])] 
-                    for box in results[0].boxes
-                ))
+                
+                # Process detected objects
+                for box in results[0].boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                    class_name = object_model.names[int(box.cls[0])]
+                    
+                    # Get real-world coordinates
+                    real_x, real_y, depth = pixel_to_real_world(
+                        (x1, y1, x2, y2), 
+                        frame_width, 
+                        frame_height
+                    )
+                    
+                    detected_objects.append(class_name)
+                    detected_objects_with_coords.append({
+                        'class_name': class_name,
+                        'coordinates': {
+                            'x': round(real_x, 2),
+                            'y': round(real_y, 2),
+                            'depth': round(depth, 2)
+                        }
+                    })
+                
+                detected_objects = list(set(detected_objects))
                 cap.release()
         
-        # Process query and detected objects
-        response = extract_objects(speech_text, detected_objects)
+        # Check if the question is about spatial relationships
+        spatial_keywords = ['left', 'right', 'above', 'below', 'higher', 'lower', 
+                          'closer', 'farther', 'near', 'far', 'where', 'location']
+        
+        if any(keyword in speech_text.lower() for keyword in spatial_keywords):
+            response = process_spatial_query(speech_text, detected_objects_with_coords)
+        else:
+            response = extract_objects(speech_text, detected_objects)
+            
         print(f"Assistant: {response}")
         speak(response)
 
